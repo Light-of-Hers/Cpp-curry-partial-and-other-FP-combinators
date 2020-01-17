@@ -1,4 +1,4 @@
-# curry、partial的C++实现
+# curry、partial及部分常用FP组合子的C++实现
 
 [TOC]
 
@@ -169,7 +169,7 @@ auto __curry(std::function<R(A, As...)> f) {
 }
 ```
 
-这里`partialer`也可用一个lambda表达式实现，不过捕获`arg`时会出现些问题（特别是函数参数为引用，即`A`为引用类型时），有兴趣的可以自己试试。
+这里`partialer`也可用一个lambda表达式实现，不过捕获`arg`时会出现些问题（特别是函数参数为引用，即`A`为左值/右值引用类型时），有兴趣的可以自己试试。
 
 注意`std::function`只接收可拷贝的函数对象，因此为了应对不可拷贝的函数对象（保存有不可拷贝的值，或者保存有右值引用），用一个`functor_copy_wrapper`包装函数对象，对不可拷贝的对象重写拷贝构造函数为移动语义。`functor_copy_wrapper`实现如下：
 
@@ -228,7 +228,7 @@ auto curry(F f) {
 
 + 传入的必须是类型确定的函数，也就是说函数模板和重载的函数不能直接传入。对于函数模板，需要实例化成模板函数后传入；对于重载的函数，需要显式转换到特定的类型才能传入。
 
-+ 当前实现的curry只支持对原函数的拷贝，不支持对原函数的引用。对于不支持拷贝的函数对象，会采用移动语义传递函数实体，这就导致：
++ 当前实现的curry只支持对原函数的拷贝，不支持对原函数的引用。主要是考虑到相当一部分传递给curry的函数会是局部的对象（curry化过程中生成的中间函数也都是局部的对象），保存引用会导致悬空指针的问题。对于不支持拷贝的函数对象，会采用移动语义传递函数实体，这就导致：
 
   + 将函数传入curry时需要用`std::move`将所有权转让给curry。
   + curry后的函数调用后会将原函数的所有权转让给返回的函数对象，如果不将其返回值捕获（如前言的示例中的`auto x_f = std::move(f(x));`），则其原函数实体会消亡。
@@ -278,6 +278,66 @@ auto partial(F f, As &&...args) {
     detail::__functor_copy_wrapper<F, func_type> wrapper(std::move(f));
     func_type functor = wrapper;
     return detail::__partial(std::move(functor), std::forward<As>(args)...);
+}
+```
+
+
+
+### 使用注意
+
+和curry类似，不再赘述。
+
+
+
+## 其他部分常用FP组合子的实现
+
+写完curry和partial就顺便实现了compose、pipe等部分FP组合子，仅在此贴一下实现（用到了C++14的泛型lambda表达式）：
+
+```C++
+
+template<typename F>
+auto pipe(F f) {
+    return f;
+}
+template<typename F, typename ...Fs>
+auto pipe(F f, Fs ...fs) {
+    return [=, f = std::move(f)](auto &&...args) {
+        return pipe(fs...)(f(std::forward<decltype(args)>(args)...));
+    };
+}
+
+template<typename F>
+auto compose(F f) {
+    return f;
+}
+template<typename F, typename ...Fs>
+auto compose(F f, Fs ...fs) {
+    return [=, f = std::move(f)](auto &&...args) {
+        return f(compose(fs...)(std::forward<decltype(args)>(args)...));
+    };
+}
+
+template<typename F1, typename F2, typename J>
+auto fork_join(F1 f1, F2 f2, J join) {
+    return [f1 = std::move(f1), f2 = std::move(f2), join = std::move(join)](auto &&...args) {
+        return join(f1(std::forward<decltype(args)>(args)...),
+                    f2(std::forward<decltype(args)>(args)...));
+    };
+}
+
+template<typename T>
+auto identity(T &&t) {
+    return std::forward<T>(t);
+}
+
+template<typename T>
+auto seq(T &&t) {
+    return std::forward<T>(t);
+}
+template<typename T, typename F, typename ...Fs>
+auto seq(T &&t, F f, Fs ...fs) {
+    f(std::forward<T>(t));
+    return seq(std::forward<T>(t), fs...);
 }
 ```
 
