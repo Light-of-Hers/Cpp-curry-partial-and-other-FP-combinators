@@ -19,17 +19,21 @@ struct __function_traits_base {
 };
 
 template<typename F>
-struct __function_traits : public __function_traits<decltype(&F::operator())> {};
+struct __function_traits;
+template<typename F>
+struct __function_traits<std::reference_wrapper<F>> : public __function_traits<F> {};
 template<typename R, typename ...As>
 struct __function_traits<R(*)(As...)> : public __function_traits_base<R, As...> {};
 template<typename R, typename C, typename ...As>
 struct __function_traits<R(C::*)(As...)> : public __function_traits_base<R, As...> {};
 template<typename R, typename C, typename ...As>
 struct __function_traits<R(C::*)(As...) const> : public __function_traits_base<R, As...> {};
+template<typename F>
+struct __function_traits : public __function_traits<decltype(&F::operator())> {};
 
 }
 
-namespace ft {
+namespace fp {
 
 template<typename F>
 struct function_traits : public detail::__function_traits<std::decay_t<F>> {};
@@ -113,7 +117,7 @@ auto __partial(std::function<R(P, Ps...)> f, A &&arg, As &&...args) {
 
 }
 
-namespace ft {
+namespace fp {
 
 template<typename F>
 auto curry(F f) {
