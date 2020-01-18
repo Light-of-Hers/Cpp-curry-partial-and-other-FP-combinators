@@ -1,7 +1,3 @@
-//
-// Created by herlight on 2020/1/12.
-//
-
 #ifndef __CRZ_META_HH__
 #define __CRZ_META_HH__
 
@@ -36,27 +32,25 @@ struct __function_traits<R(C::*)(As...) const> : public __function_traits_base<R
 namespace ft {
 
 template<typename F>
-struct function_traits
-        : public detail::__function_traits<std::decay_t<std::remove_reference_t<F>>> {
-};
+struct function_traits : public detail::__function_traits<std::decay_t<F>> {};
 
 }
 
 namespace detail {
 
 template<typename, typename, typename = void>
-class __functor_wrapper;
+class __functor_copy_wrapper;
 
 template<typename F, typename R, typename ...As>
-class __functor_wrapper<F, std::function<R(As...)>,
+class __functor_copy_wrapper<F, std::function<R(As...)>,
         std::enable_if_t<!std::is_copy_constructible_v<F>>> {
-    using self = __functor_wrapper;
+    using self = __functor_copy_wrapper;
 
     F f;
 public:
-    explicit __functor_wrapper(F f) : f(std::move(f)) {}
-    __functor_wrapper(const self &rhs) : f(std::move(const_cast<self &>(rhs).f)) {}
-    __functor_wrapper(self &&rhs) noexcept : f(std::move(rhs.f)) {}
+    explicit __functor_copy_wrapper(F f) : f(std::move(f)) {}
+    __functor_copy_wrapper(const self &rhs) : f(std::move(const_cast<self &>(rhs).f)) {}
+    __functor_copy_wrapper(self &&rhs) noexcept : f(std::move(rhs.f)) {}
 
     auto operator()(As ...args) {
         return f(std::forward<As>(args)...);
@@ -64,11 +58,11 @@ public:
 };
 
 template<typename F, typename R, typename ...As>
-class __functor_wrapper<F, std::function<R(As...)>,
+class __functor_copy_wrapper<F, std::function<R(As...)>,
         std::enable_if_t<std::is_copy_constructible_v<F>>> {
     F f;
 public:
-    explicit __functor_wrapper(F f) : f(std::move(f)) {}
+    explicit __functor_copy_wrapper(F f) : f(std::move(f)) {}
 
     auto operator()(As ...args) {
         return f(std::forward<As>(args)...);
@@ -96,7 +90,7 @@ template<typename R, typename A, typename ...As>
 auto __curry(std::function<R(A, As...)> f) {
     return [f = std::move(f)](A arg) {
         auto partialer = __single_partialer<R, A, As...>(std::move(f), std::forward<A>(arg));
-        __functor_wrapper<decltype(partialer), std::function<R(As...)>>
+        __functor_copy_wrapper<decltype(partialer), std::function<R(As...)>>
                 wrapper(std::move(partialer));
         std::function<R(As...)> rest = wrapper;
         return __curry(std::move(rest));
@@ -111,7 +105,7 @@ auto __partial(std::function<R(Ps...)> f) {
 template<typename R, typename P, typename ...Ps, typename A, typename ...As>
 auto __partial(std::function<R(P, Ps...)> f, A &&arg, As &&...args) {
     auto partialer = __single_partialer<R, P, Ps...>(std::move(f), std::forward<A>(arg));
-    __functor_wrapper<decltype(partialer), std::function<R(Ps...)>>
+    __functor_copy_wrapper<decltype(partialer), std::function<R(Ps...)>>
             wrapper(std::move(partialer));
     std::function<R(Ps...)> rest = wrapper;
     return __partial(std::move(rest), std::forward<As>(args)...);
@@ -124,14 +118,14 @@ namespace ft {
 template<typename F>
 auto curry(F f) {
     using func_type = typename function_traits<F>::function_type;
-    detail::__functor_wrapper<F, func_type> wrapper(std::move(f));
+    detail::__functor_copy_wrapper<F, func_type> wrapper(std::move(f));
     func_type functor = wrapper;
     return detail::__curry(std::move(functor));
 }
 template<typename F, typename ...As>
 auto partial(F f, As &&...args) {
     using func_type = typename function_traits<F>::function_type;
-    detail::__functor_wrapper<F, func_type> wrapper(std::move(f));
+    detail::__functor_copy_wrapper<F, func_type> wrapper(std::move(f));
     func_type functor = wrapper;
     return detail::__partial(std::move(functor), std::forward<As>(args)...);
 }
@@ -181,9 +175,7 @@ auto seq(T &&t, F f, Fs ...fs) {
     return seq(std::forward<T>(t), fs...);
 }
 
-
 }
-
 }
 
 #endif //__CRZ_META_HH__
