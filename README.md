@@ -20,7 +20,7 @@ int add(int a, int b) {
     return a + b;
 }
 int main() {
-    using namespace crz::ft;
+    using namespace crz::fp;
     {
         auto c_add = curry(add);
         std::cout << c_add(1)(2) << std::endl; // 3
@@ -49,6 +49,17 @@ int main() {
         std::cout << x << std::endl; // 4
     }
     {
+        UniF uf{1};
+        int x = 0;
+        auto f = curry(std::ref(uf));
+        std::cout << f(x)(1) << std::endl; // 2
+        std::cout << x << std::endl; // 2
+        auto x_f = f(x);
+        std::cout << x_f(1) << std::endl; // 3
+        std::cout << x_f(1) << std::endl; // 4
+        std::cout << x << std::endl; // 4
+    }
+    {
         auto pair_assign = [](int &a, int &b, int aa, int bb) -> void { a = aa, b = bb; };
         int a = 0, b = 0;
         auto assign_a_b = partial(pair_assign, a, b);
@@ -67,6 +78,7 @@ int main() {
 curry和partial涉及到对函数参数类型的解析（curry/partial出的函数会暂存传入的参数，因此有必要显式地解析各个参数的类型，以选择适当的方式（传值/传引用）来保存参数），要通过一些手段萃取函数签名的信息。这部分内容可以参见[这篇文章](https://zhuanlan.zhihu.com/p/102240099)以及[stackoverflow上的一个问题](https://stackoverflow.com/questions/6512019/can-we-get-the-type-of-a-lambda-argument)，这里仅给出代码：
 
 ```C++
+
 namespace detail {
 
 template<typename R, typename ...As>
@@ -79,22 +91,24 @@ struct __function_traits_base {
 };
 
 template<typename F>
-struct __function_traits : public __function_traits<decltype(&F::operator())> {};
+struct __function_traits;
+template<typename F>
+struct __function_traits<std::reference_wrapper<F>> : public __function_traits<F> {};
 template<typename R, typename ...As>
 struct __function_traits<R(*)(As...)> : public __function_traits_base<R, As...> {};
 template<typename R, typename C, typename ...As>
 struct __function_traits<R(C::*)(As...)> : public __function_traits_base<R, As...> {};
 template<typename R, typename C, typename ...As>
 struct __function_traits<R(C::*)(As...) const> : public __function_traits_base<R, As...> {};
+template<typename F>
+struct __function_traits : public __function_traits<decltype(&F::operator())> {};
 
 }
 
-namespace ft {
+namespace fp {
 
 template<typename F>
-struct function_traits
-        : public detail::__function_traits<std::decay_t<std::remove_reference_t<F>>> {
-};
+struct function_traits : public detail::__function_traits<std::decay_t<F>> {};
 
 }
 ```
@@ -227,13 +241,7 @@ auto curry(F f) {
 ### 使用注意
 
 + 传入的必须是类型确定的函数，也就是说函数模板和重载的函数不能直接传入。对于函数模板，需要实例化成模板函数后传入；对于重载的函数，需要显式转换到特定的类型才能传入。
-
-+ 当前实现的curry只支持对原函数的拷贝，不支持对原函数的引用。主要是考虑到相当一部分传递给curry的函数会是局部的对象（curry化过程中生成的中间函数也都是局部的对象），保存引用会导致悬空指针的问题。对于不支持拷贝的函数对象，会采用移动语义传递函数实体，这就导致：
-
-  + 将函数传入curry时需要用`std::move`将所有权转让给curry。
-  + curry后的函数调用后会将原函数的所有权转让给返回的函数对象，如果不将其返回值捕获（如前言的示例中的`auto x_f = std::move(f(x));`），则其原函数实体会消亡。
-
-  今后可能会改进curry的实现让其支持对原函数的引用（比如用`std::ref`显式传入函数的引用）。
++ curry默认是传值调用，如果想传入函数引用可以用`std::ref`/`std::cref`进行包装后将引用间接传入。如果传入的函数对象是不可拷贝的，可以选择用`std::ref`间接传引用或者用`std::move`转让所有权。
 
 
 
@@ -270,6 +278,8 @@ auto __partial(std::function<R(P, Ps...)> f, A &&arg, As &&...args) {
     return __partial(std::move(rest), std::forward<As>(args)...);
 }
 ```
+
+</br>
 
 ```C++
 template<typename F, typename ...As>
@@ -340,8 +350,6 @@ auto seq(T &&t, F f, Fs ...fs) {
     return seq(std::forward<T>(t), fs...);
 }
 ```
-
-
 
 
 
