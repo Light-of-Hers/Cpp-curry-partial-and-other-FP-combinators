@@ -7,7 +7,7 @@
 
 namespace crz {
 
-namespace detail {
+namespace __detail {
 
 template<typename R, typename ...As>
 struct __function_traits_base {
@@ -36,84 +36,81 @@ struct __function_traits : public __function_traits<decltype(&F::operator())> {}
 namespace fp {
 
 template<typename F>
-struct function_traits : public detail::__function_traits<std::decay_t<F>> {};
+struct function_traits : public __detail::__function_traits<std::decay_t<F>> {};
 
 }
 
-namespace detail {
+namespace __detail {
 
-template<typename, typename, typename = void>
-class __functor_copy_wrapper;
+template<typename T>
+auto __copy_or_move(const T &t) -> T {
+    if constexpr (std::is_copy_constructible_v<T>) {
+        return t;
+    } else {
+        return std::move(const_cast<T &>(t));
+    }
+}
 
-template<typename F, typename R, typename ...As>
-class __functor_copy_wrapper<F, std::function<R(As...)>,
-        std::enable_if_t<!std::is_copy_constructible_v<F>>> {
-    using self = __functor_copy_wrapper;
 
+template<typename F, typename T1, typename T2>
+class __curry_cacher;
+template<typename F, typename TA, typename A, typename ...As>
+class __curry_cacher<F, TA, std::tuple<A, As...>> {
     F f;
+    TA cached_args;
 public:
-    explicit __functor_copy_wrapper(F f) : f(std::move(f)) {}
-    __functor_copy_wrapper(const self &rhs) : f(std::move(const_cast<self &>(rhs).f)) {}
-    __functor_copy_wrapper(self &&rhs) noexcept : f(std::move(rhs.f)) {}
-
-    auto operator()(As ...args) {
-        return f(std::forward<As>(args)...);
+    __curry_cacher(F f, TA args) : f(std::move(f)), cached_args(std::move(args)) {}
+    auto operator()(A arg) {
+        auto new_cached_args = std::tuple_cat(
+                __copy_or_move(cached_args),
+                std::tuple<A>(std::forward<A>(arg)));
+        return __curry_cacher<F,
+                decltype(new_cached_args),
+                std::tuple<As...>>(__copy_or_move(f), std::move(new_cached_args));
+    }
+};
+template<typename F, typename TA, typename A>
+class __curry_cacher<F, TA, std::tuple<A>> {
+    F f;
+    TA cached_args;
+public:
+    __curry_cacher(F f, TA args) : f(std::move(f)), cached_args(std::move(args)) {}
+    auto operator()(A arg) {
+        return std::apply(f, std::tuple_cat(
+                __copy_or_move(cached_args),
+                std::tuple<A>(std::forward<A>(arg))));
     }
 };
 
-template<typename F, typename R, typename ...As>
-class __functor_copy_wrapper<F, std::function<R(As...)>,
-        std::enable_if_t<std::is_copy_constructible_v<F>>> {
+
+template<typename F, typename T1, typename T2>
+class __partial_cacher;
+template<typename F, typename TA, typename ...As>
+class __partial_cacher<F, TA, std::tuple<As...>> {
     F f;
+    TA cached_args;
 public:
-    explicit __functor_copy_wrapper(F f) : f(std::move(f)) {}
-
-    auto operator()(As ...args) {
-        return f(std::forward<As>(args)...);
-    }
-};
-
-template<typename R, typename A, typename ...As>
-class __single_partialer {
-    std::function<R(A, As...)> f;
-    A arg;
-public:
-    __single_partialer(std::function<R(A, As...)> f, A arg)
-            : f(std::move(f)), arg(std::forward<A>(arg)) {}
+    __partial_cacher(F f, TA args) : f(std::move(f)), cached_args(std::move(args)) {}
     auto operator()(As... args) {
-        return f(std::forward<A>(arg), std::forward<As>(args)...);
+        return std::apply(f, std::tuple_cat(
+                __copy_or_move(cached_args),
+                std::tuple<As...>(std::forward<As>(args)...)));
     }
 };
 
-template<typename R, typename A = void>
-auto __curry(std::function<R(A)> f) {
-    return f;
-}
 
-template<typename R, typename A, typename ...As>
-auto __curry(std::function<R(A, As...)> f) {
-    return [f = std::move(f)](A arg) {
-        auto partialer = __single_partialer<R, A, As...>(std::move(f), std::forward<A>(arg));
-        __functor_copy_wrapper<decltype(partialer), std::function<R(As...)>>
-                wrapper(std::move(partialer));
-        std::function<R(As...)> rest = wrapper;
-        return __curry(std::move(rest));
-    };
-}
-
-template<typename R, typename ...Ps>
-auto __partial(std::function<R(Ps...)> f) {
-    return f;
-}
-
-template<typename R, typename P, typename ...Ps, typename A, typename ...As>
-auto __partial(std::function<R(P, Ps...)> f, A &&arg, As &&...args) {
-    auto partialer = __single_partialer<R, P, Ps...>(std::move(f), std::forward<A>(arg));
-    __functor_copy_wrapper<decltype(partialer), std::function<R(Ps...)>>
-            wrapper(std::move(partialer));
-    std::function<R(Ps...)> rest = wrapper;
-    return __partial(std::move(rest), std::forward<As>(args)...);
-}
+template<std::size_t I, typename T, typename = void>
+struct __tuple_drop_n;
+template<std::size_t I, typename T>
+using __tuple_drop_n_t = typename __tuple_drop_n<I, T>::type;
+template<typename ...Ts>
+struct __tuple_drop_n<0, std::tuple<Ts...>> {
+    using type = std::tuple<Ts...>;
+};
+template<std::size_t I, typename T, typename ...Ts>
+struct __tuple_drop_n<I, std::tuple<T, Ts...>, std::enable_if_t<(I > 0)>> {
+    using type = __tuple_drop_n_t<I - 1, std::tuple<Ts...>>;
+};
 
 }
 
@@ -121,17 +118,26 @@ namespace fp {
 
 template<typename F>
 auto curry(F f) {
-    using func_type = typename function_traits<F>::function_type;
-    detail::__functor_copy_wrapper<F, func_type> wrapper(std::move(f));
-    func_type functor = wrapper;
-    return detail::__curry(std::move(functor));
+    using arg_types = typename function_traits<F>::argument_types;
+    if constexpr (std::tuple_size_v<arg_types> < 2) {
+        return f;
+    } else {
+        return __detail::__curry_cacher<F, std::tuple<>, arg_types>
+                (std::move(f), std::tuple<>());
+    }
 }
 template<typename F, typename ...As>
 auto partial(F f, As &&...args) {
-    using func_type = typename function_traits<F>::function_type;
-    detail::__functor_copy_wrapper<F, func_type> wrapper(std::move(f));
-    func_type functor = wrapper;
-    return detail::__partial(std::move(functor), std::forward<As>(args)...);
+    using arg_types = typename function_traits<F>::argument_types;
+    static_assert(sizeof...(As) <= std::tuple_size_v<arg_types>, "Too many arguments");
+    if constexpr (sizeof...(As) == 0) {
+        return f;
+    } else if constexpr (sizeof...(As) == std::tuple_size_v<arg_types>) {
+        return f(std::forward<As>(args)...);
+    } else {
+        return __detail::__partial_cacher<F, std::tuple<As...>, __detail::__tuple_drop_n_t<sizeof...(As), arg_types>>
+                (std::move(f), std::tuple<As...>(std::forward<As>(args)...));
+    }
 }
 
 template<typename F>
