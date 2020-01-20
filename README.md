@@ -8,6 +8,8 @@
 
 对于柯里化和偏应用不太了解的，可以参考[@罗宸的这个回答](https://www.zhihu.com/question/30097211/answer/46785556)，在此不多赘述。
 
+---
+
 
 
 ## 基本思路
@@ -24,13 +26,13 @@
 
 + 还有一种方法参见[何涛的这篇博客](https://sighingnow.github.io/%E7%BC%96%E7%A8%8B%E8%AF%AD%E8%A8%80/cpp_currying_partial_application.html)。其基本思想是保存之前的函数对象，传入最后一个参数后逐层传递参数（最高层N将最后一个参数传递给下一层N-1，N-1将得到的参数和自己保存的参数传递给下一层N-2），在最后一层调用柯里化之前的函数。实现上会更漂亮些，但性能上感觉不如前者。可以用下面的JS伪代码表现：
 
-  ```javascript
-  const curry = (f) => {
-      return (arg) => {
-          return curry(partial_first_arg(f, arg));
-      }
+```javascript
+const curry = (f) => {
+  return (arg) => {
+      return curry(partial_first_arg(f, arg));
   }
-  ```
+}
+```
 
 
 
@@ -42,11 +44,13 @@
 
 + 也是[何涛博客](https://sighingnow.github.io/%E7%BC%96%E7%A8%8B%E8%AF%AD%E8%A8%80/cpp_currying_partial_application.html)中提到的方法，基本思想可以用下面JS伪码表述：
 
-  ```javascript
-  const partial = (f, arg, ...args) => {
-      return partial(partial_first_arg(f, arg), ...args);
-  }
-  ```
+```javascript
+const partial = (f, arg, ...args) => {
+  return partial(partial_first_arg(f, arg), ...args);
+}
+```
+
+---
 
 
 
@@ -56,7 +60,7 @@
 
 
 
-1. 采用右值引用结合`std::forward`来转发函数参数，如Khellendros的curry实现：
++ 采用右值引用结合`std::forward`来转发函数参数，如Khellendros的curry实现：
 
 ```C++
 auto operator()(A &&... args) const {
@@ -86,23 +90,25 @@ int main() {
 
 会输出奇怪的数（反正不是2），因为`inc`中的`curry(add)`接收`x`后保存的是`x`的引用而不是值，之后对`inc`的调用会覆写原引用指向的栈上的位置。
 
+<br/>
 
++ 采用引用保存原函数。和前例一样也会出现悬垂引用问题。一般对于函数对象而言保存值是最好的，如果需要保存引用可以用`std::ref`显式包装。
 
-2. 采用引用保存原函数。和前例一样也会出现悬垂引用问题。一般对于函数对象而言保存值是最好的，如果需要保存引用可以用`std::ref`显式包装。
+<br/>
 
++ 对于函数和保存的参数的可拷贝性缺乏考量。
 
+<br/>
 
-3. 对于函数和保存的参数的可拷贝性缺乏考量。
-
-
-
-4. 没有按原函数的参数类型要求严格地按值/引用保存传入的参数。这点是1.的延伸。
++ 没有按原函数的参数类型要求严格地按值/引用保存传入的参数。这点是1.的延伸。
 
 ......
 
 
 
 上述问题主要都是C++的内存管理模式导致的。和ML、Lisp等大多数带函数式编程特性的语言不同，C++没有GC，这就导致了实现curry&partial的过程中，在涉及值/引用和拷贝/移动时需要更细致的考察（用Rust的话编译器会帮你考察……）。
+
+---
 
 
 
@@ -292,6 +298,8 @@ struct __tuple_drop_n<I, std::tuple<T, Ts...>, std::enable_if_t<(I > 0)>> {
 };
 ```
 
+---
+
 
 
 ## 简单测试
@@ -423,6 +431,8 @@ public:
     }
 ```
 
+---
+
 
 
 ## 使用注意
@@ -431,15 +441,18 @@ public:
 + curry&partial默认传入函数的拷贝，如果想传入函数引用可以用`std::ref`/`std::cref`进行包装后将引用间接传入。如果传入的函数对象是不可拷贝的，可以选择用`std::ref`间接传引用或者用`std::move`转让所有权。
 + 需要C++17标准支持（主要是`constexpr if`特性，毕竟多分支模板匹配写起来还是蛮令人不爽的……）。
 
+---
+
 
 
 ## 后记
 
 自己在PKU-CECA里搞的东西基本和PL或C++没有什么关系（硬要扯上关系的话，TVM的Relay的研究和PL有点关系？或者写CUDA之类的和C++有点关系？），所以这两天搞这种无用的玩意纯属摸鱼行为……不过，虽然无用，但造轮子还是蛮爽的。
 
-附上代码链接：https://github.com/Light-of-Hers/Cpp-curry-partial-and-other-FP-combinators
+附上代码链接：[https://github.com/Light-of-Hers/Cpp-curry-partial-and-other-FP-combinators](https://github.com/Light-of-Hers/Cpp-curry-partial-and-other-FP-combinators)
+
+---
 
 
 
 *本文纯原创，如需转载请标明出处*
-
