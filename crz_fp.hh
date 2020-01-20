@@ -1,5 +1,5 @@
-#ifndef __CRZ_META_HH__
-#define __CRZ_META_HH__
+#ifndef __CRZ_FP_HH__
+#define __CRZ_FP_HH__
 
 #include <type_traits>
 #include <functional>
@@ -188,4 +188,4 @@ auto seq(T &&t, F f, Fs ...fs) {
 }
 }
 
-#endif //__CRZ_META_HH__
+#endif // __CRZ_FP_HH__
